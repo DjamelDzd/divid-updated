@@ -1,25 +1,40 @@
 /**
  * DAVID V1 — /groupimg — تغيير وقفل صورة الغروب
- * Copyright © 2025 DJAMEL — v4.0 Fixed
- * الإصلاحات:
- *  - حفظ حالة القفل في ملف (لا تضيع عند إعادة التشغيل أو hot-reload)
- *  - كشف أحداث تغيير الصورة بطريقة أكثر موثوقية
- *  - إعادة تطبيق الصورة بشكل صحيح مع إنشاء stream جديد دائماً
- *  - تحسين شامل في معالجة الأخطاء
+ * Copyright © 2025 DJAMEL — v5.0 Fixed
+ * Fixed:
+ *  - shim لـ parseAndCheckLogin (بعض إصدارات FCA تحتاجه)
+ *  - منع حلقة لانهائية: تجاهل تغييرات البوت نفسه
+ *  - حماية ضد تشغيل متزامن لنفس الغروب
+ *  - إعادة محاولة 3 مرات بفاصل تصاعدي
  */
 "use strict";
-const axios  = require("axios");
-const fs     = require("fs-extra");
-const path   = require("path");
-const os     = require("os");
+const axios = require("axios");
+const fs    = require("fs-extra");
+const path  = require("path");
+const os    = require("os");
+
+// ── Shim لـ parseAndCheckLogin (يحل مشكلة بعض إصدارات fca-eryxenx) ──────────
+try {
+  require(path.join(process.cwd(), "bot/utils/parseAndCheckLogin"));
+} catch (_) {
+  if (typeof global.parseAndCheckLogin === "undefined") {
+    global.parseAndCheckLogin = function parseAndCheckLogin(ctx, http, retryCount = 0) {
+      return async function handleResponse(res) {
+        const body = res?.data;
+        if (body == null) return body;
+        if (typeof body === "object") return body;
+        try { return JSON.parse(String(body).replace(/^[^{[]*/, "")); } catch (_) { return body; }
+      };
+    };
+  }
+}
 
 // ── مسارات الملفات ────────────────────────────────────────────────────────────
-const CACHE      = path.join(process.cwd(), "data", "groupimg_locks");
+const CACHE      = path.join(os.tmpdir(), "groupimg_locks");
 const STATE_FILE = path.join(process.cwd(), "database", "data", "groupImgLocks.json");
 fs.ensureDirSync(CACHE);
 fs.ensureDirSync(path.dirname(STATE_FILE));
 
-// ── تحميل حالة الأقفال من الملف (يعيشون بين الـ restarts) ──────────────────
 function loadState() {
   try {
     if (fs.existsSync(STATE_FILE))
@@ -31,16 +46,14 @@ function saveState(state) {
   try { fs.writeFileSync(STATE_FILE, JSON.stringify(state, null, 2)); } catch (_) {}
 }
 
-// حالة الأقفال: { [tid]: true/false }
-// نستخدم global لمنع فقدانها عند hot-reload
 if (!global._groupImgState) global._groupImgState = loadState();
 const locks = global._groupImgState;
 
 function lockFile(tid) {
-  return path.join(CACHE, `lock_${String(tid).replace(/[^0-9]/g, "")}.jpg`);
+  return path.join(CACHE, `groupimg_lock_${String(tid).replace(/[^0-9]/g, "")}.jpg`);
 }
 
-function isAdmin(id) {
+function isBotAdmin(id) {
   const cfg = global.GoatBot?.config || {};
   const sid = String(id);
   const owners = [cfg.ownerID, ...(cfg.superAdminBot || [])].filter(Boolean).map(String);
@@ -57,7 +70,6 @@ async function isGroupAdmin(api, uid, tid) {
   } catch (_) { return false; }
 }
 
-// ── تنزيل الصورة من URL ───────────────────────────────────────────────────────
 async function downloadImage(url) {
   const tmpFile = path.join(CACHE, `tmp_${Date.now()}.jpg`);
   const res = await axios.get(url, {
@@ -66,20 +78,19 @@ async function downloadImage(url) {
     maxRedirects: 5,
     headers: {
       "User-Agent": "Mozilla/5.0 (Linux; Android 12) AppleWebKit/537.36",
-      "Accept": "image/*,*/*;q=0.8",
-    },
+      "Accept": "image/*,*/*;q=0.8"
+    }
   });
   fs.writeFileSync(tmpFile, Buffer.from(res.data));
   return tmpFile;
 }
 
-// ── تطبيق صورة القفل على الغروب ─────────────────────────────────────────────
+/** تطبيق صورة القفل على الغروب بصمت */
 async function applyImage(api, tid) {
   const lf = lockFile(tid);
   if (!fs.existsSync(lf)) return;
   try {
     await new Promise((resolve, reject) => {
-      // يجب إنشاء stream جديد في كل مرة
       const stream = fs.createReadStream(lf);
       stream.on("error", reject);
       api.changeGroupImage(stream, String(tid), (err) => {
@@ -88,17 +99,15 @@ async function applyImage(api, tid) {
       });
     });
   } catch (e) {
-    if (global.log) global.log.warn("GROUPIMG", `فشل إعادة تطبيق الصورة: ${e.message}`);
+    if (global.log) global.log.warn("GROUPIMG", `فشل تطبيق الصورة: ${e.message}`);
   }
 }
 
-// ── الكشف عن حدث تغيير صورة الغروب (متعدد الصيغ) ──────────────────────────
 function isImageChangeEvent(event) {
   return (
     event.logMessageType === "log:thread-image" ||
     event.type           === "log:thread-image" ||
-    (event.type === "event" && event.logMessageType === "log:thread-image") ||
-    (event.logMessageData?.image !== undefined && !event.logMessageData?.leftParticipantFbId)
+    (event.type === "event" && event.logMessageType === "log:thread-image")
   );
 }
 
@@ -108,22 +117,22 @@ module.exports = {
   config: {
     name: "groupimg",
     aliases: ["gcimg", "صورة", "img"],
-    version: "4.0",
+    version: "5.0",
     author: "DJAMEL",
     countDown: 5,
     role: 2,
     category: "management",
     description: "تغيير وقفل صورة الغروب تلقائياً",
     guide: {
-      en: "{pn} [رابط أو صورة] — تغيير وقفل\n{pn} off — فك القفل\n{pn} status — الحالة",
-    },
+      en: "{pn} [رابط أو صورة] — تغيير وقفل\n{pn} off — فك القفل\n{pn} status — الحالة"
+    }
   },
 
   onStart: async function ({ api, event, args, message }) {
     const tid = String(event.threadID);
     const uid = event.senderID;
 
-    if (!isAdmin(uid) && !(await isGroupAdmin(api, uid, tid)))
+    if (!isBotAdmin(uid) && !(await isGroupAdmin(api, uid, tid)))
       return message.reply("⛔ هذا الأمر للأدمن فقط.");
 
     const sub = (args[0] || "").toLowerCase();
@@ -168,10 +177,9 @@ module.exports = {
       if (direct) imageUrl = direct.url || direct.previewUrl || direct.thumbnailUrl;
     }
 
-    if (!imageUrl) {
+    if (!imageUrl)
       for (const a of args)
         if (a?.startsWith("http://") || a?.startsWith("https://")) { imageUrl = a; break; }
-    }
 
     if (!imageUrl) {
       return message.reply(
@@ -192,13 +200,11 @@ module.exports = {
     message.react("⏳", event.messageID);
 
     try {
-      // تنزيل الصورة وحفظها كملف القفل
       const tmpPath = await downloadImage(imageUrl);
       const lf = lockFile(tid);
       fs.copySync(tmpPath, lf);
       try { fs.removeSync(tmpPath); } catch (_) {}
 
-      // تطبيق الصورة على الغروب
       await new Promise((resolve, reject) => {
         const stream = fs.createReadStream(lf);
         stream.on("error", reject);
@@ -208,7 +214,6 @@ module.exports = {
         });
       });
 
-      // حفظ حالة القفل
       locks[tid] = true;
       saveState(locks);
 
@@ -240,10 +245,34 @@ module.exports = {
 
   onEvent: async function ({ api, event }) {
     if (!isImageChangeEvent(event)) return;
-    const tid = String(event.threadID);
+    const tid   = String(event.threadID);
+    const botID = String(api.getCurrentUserID?.() || global.GoatBot?.botID || "");
+
+    // FIX: تجاهل التغييرات التي أحدثها البوت نفسه (منع الحلقة اللانهائية)
+    if (botID && String(event.author || event.senderID) === botID) return;
+
     if (locks[tid] !== true) return;
-    if (!fs.existsSync(lockFile(tid))) return;
-    // تأخير 2.5 ثانية ثم إعادة تطبيق صورة القفل
-    setTimeout(() => applyImage(api, tid), 2500);
-  },
+    const lf = lockFile(tid);
+    if (!fs.existsSync(lf)) return;
+
+    // FIX: منع تشغيل أكثر من عملية لنفس الغروب في نفس الوقت
+    if (!global._groupImgLocking) global._groupImgLocking = new Set();
+    if (global._groupImgLocking.has(tid)) return;
+    global._groupImgLocking.add(tid);
+
+    // انتظر 5 ثوانٍ ثم أعد التطبيق مع 3 محاولات
+    await new Promise(r => setTimeout(r, 5000));
+
+    for (let attempt = 1; attempt <= 3; attempt++) {
+      try {
+        if (!fs.existsSync(lf)) break;   // تم فك القفل أثناء الانتظار
+        await applyImage(api, tid);
+        break;
+      } catch (_) {
+        if (attempt < 3) await new Promise(r => setTimeout(r, 4000 * attempt));
+      }
+    }
+
+    global._groupImgLocking.delete(tid);
+  }
 };
