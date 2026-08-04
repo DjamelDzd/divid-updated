@@ -1,7 +1,10 @@
 /**
  * DAVID V1 — /changeavatar — تغيير صورة حساب البوت
  * Copyright © 2025 DJAMEL
- * Fixed: استخدام api.changeAvatar مباشرة (بدون form-data)
+ * Fixed v3.1:
+ *  - stream مباشر من axios (بدون حفظ في ملف مؤقت)
+ *  - api.changeAvatar(stream, caption, timestamp, callback) الـ signature الصحيح
+ *  - لا حاجة لـ form-data
  */
 "use strict";
 const axios = require("axios");
@@ -22,7 +25,7 @@ module.exports = {
   config: {
     name: "setavatar",
     aliases: ["changeavatar", "avatar", "صورة-البوت", "تغيير-الصورة"],
-    version: "3.0",
+    version: "3.1",
     author: "DJAMEL",
     countDown: 15,
     role: 3,
@@ -62,35 +65,27 @@ module.exports = {
     }
 
     message.react("⏳", event.messageID);
-    const tmpPath = path.join(os.tmpdir(), `david_avatar_${Date.now()}.jpg`);
 
     try {
-      // تنزيل الصورة
-      const res = await axios.get(imageUrl, {
-        responseType: "arraybuffer",
+      // FIX: تنزيل كـ stream مباشر وتمريره لـ changeAvatar بدون حفظ في ملف
+      const imgRes = await axios.get(imageUrl, {
+        responseType: "stream",
         timeout: 25000,
         headers: { "User-Agent": UA }
       });
-      fs.writeFileSync(tmpPath, Buffer.from(res.data));
 
-      // FIX: استخدام api.changeAvatar مباشرة (بدون form-data)
-      let success = false;
+      // بعض إصدارات FCA تحتاج لـ .path hint
+      imgRes.data.path = "avatar.jpg";
 
-      if (typeof api.changeAvatar === "function") {
-        await new Promise((resolve, reject) =>
-          api.changeAvatar(fs.createReadStream(tmpPath), "", (e) => e ? reject(e) : resolve())
-        );
-        success = true;
-      } else if (typeof api.setProfilePicture === "function") {
-        await new Promise((resolve, reject) =>
-          api.setProfilePicture(fs.createReadStream(tmpPath), (e) => e ? reject(e) : resolve())
-        );
-        success = true;
-      }
+      // FIX: الـ signature الصحيح هو changeAvatar(image, caption, timestamp, callback)
+      // المكتبة تدعم الـ Promise مباشرة عند عدم تمرير callback
+      await new Promise((resolve, reject) => {
+        api.changeAvatar(imgRes.data, "", null, (err) => {
+          if (err) reject(err);
+          else resolve();
+        });
+      });
 
-      if (!success) throw new Error("دالة تغيير الصورة غير متوفرة في هذا الإصدار من FCA");
-
-      fs.removeSync(tmpPath);
       message.react("✅", event.messageID);
       return message.reply(
         "╔═══════════════════════════╗\n" +
@@ -102,7 +97,6 @@ module.exports = {
         "╚═══════════════════════════╝"
       );
     } catch (err) {
-      try { fs.removeSync(tmpPath); } catch (_) {}
       message.react("❌", event.messageID);
       return message.reply(
         "╔═══════════════════════════╗\n" +
