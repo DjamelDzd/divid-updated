@@ -1,8 +1,7 @@
 /**
  * ╔══════════════════════════════════════════════════════════════════════╗
- * ║       DJAMEL-FCA v3.0 — Facebook Client Abstractions               ║
- * ║       Copyright © 2025 DJAMEL — All rights reserved               ║
- * ║       Built exclusively for DAVID V1 Bot Engine                    ║
+ * ║       DJAMEL-FCA v4.0 — Facebook Client Abstractions               ║
+ * ║       Copyright © 2025 DJAMEL — DAVID V1 Bot Engine                ║
  * ╚══════════════════════════════════════════════════════════════════════╝
  *
  * Features:
@@ -17,11 +16,14 @@
  *  ✦ Auto AppState save after login
  *  ✦ Thread info cache
  *  ✦ Anti-detection headers
+ *  ✦ [v4.0] api.david — Media helpers: sendPhoto, sendVideo, sendAudio,
+ *            sendMultiPhoto, sendFile, sendFromSocial, cobaltDownload
  */
 "use strict";
 
 const loginFCA = require("@dongdev/fca-unofficial");
 const axios    = require("axios");
+const media    = require("./lib/media");
 
 // ─── User-Agent Pool ──────────────────────────────────────────────────────────
 const UA_POOL = [
@@ -239,6 +241,26 @@ function login(cookieInput, opts, callback) {
     // Get thread info with cache
     api.getThreadInfoCached = (tid, ttl) => getThreadInfo(api, tid, ttl);
 
+    // ── [v4.0] api.david — Media helpers ────────────────────────────────
+    api.david = {
+      // إرسال صورة من URL
+      sendPhoto:       (url, caption, tid, opts) => media.sendPhoto(api, url, caption, tid, opts),
+      // إرسال فيديو من URL
+      sendVideo:       (url, caption, tid, opts) => media.sendVideo(api, url, caption, tid, opts),
+      // إرسال صوت/موسيقى من URL
+      sendAudio:       (url, caption, tid, opts) => media.sendAudio(api, url, caption, tid, opts),
+      // إرسال ملف عام من URL
+      sendFile:        (url, filename, caption, tid, opts) => media.sendFile(api, url, filename, caption, tid, opts),
+      // إرسال عدة صور دفعة واحدة (max 6)
+      sendMultiPhoto:  (urls, caption, tid, opts) => media.sendMultiPhoto(api, urls, caption, tid, opts),
+      // تنزيل من TikTok/Instagram/YouTube/Twitter وإرساله
+      sendFromSocial:  (socialUrl, caption, tid, opts) => media.sendFromSocial(api, socialUrl, caption, tid, opts),
+      // الحصول على رابط تنزيل مباشر من مواقع التواصل (cobalt.tools)
+      cobaltDownload:  (url, opts) => media.cobaltDownload(url, opts),
+      // stream مباشر من URL (للاستخدام اليدوي)
+      downloadStream:  (url, opts) => media.downloadStream(url, opts),
+    };
+
     // Fresh state
     let freshState = appState;
     try { freshState = dedup(api.getAppState() || []); } catch (_) {}
@@ -262,5 +284,6 @@ module.exports.calcTypingDelay    = calcTypingDelay;
 module.exports.simulateTyping     = simulateTyping;
 module.exports.buildReplyHelper   = buildReplyHelper;
 module.exports.getThreadInfo      = getThreadInfo;
-module.exports.version            = "3.0.0";
+module.exports.version            = "4.0.0";
 module.exports.author             = "DJAMEL";
+module.exports.media              = media;

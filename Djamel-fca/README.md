@@ -1,54 +1,81 @@
-# Djamel-fca
+# Djamel-FCA v4.0 — DAVID
 
-> مكاتب البوت — Facebook Client Abstractions for DAVID V1
-
-**Copyright © DJAMEL — All rights reserved.**
-
-A high-level abstraction library over `fca-eryxenx` (Facebook Client API) built for the **DAVID V1** Messenger Bot.
+مكتبة Facebook Client Abstractions لبوت DAVID V1.
 
 ---
 
-## Features
+## الميزات
 
-| Feature | Description |
-|---------|-------------|
-| `humanSend()` | Send messages with realistic typing delays |
-| `calcDelay()` | Calculate human-like delay from message length |
-| `appStateToCookieString()` | Convert appState JSON → cookie string |
-| `cookieStringToAppState()` | Convert cookie string → appState array |
-| `isValidAppState()` | Validate appState has required fields |
-| `getThreadInfoAsync()` | Promise-based thread info |
-| `getUserInfoAsync()` | Promise-based user info |
-| `setTitleAsync()` | Promise-based group title change |
-| `changeNicknameAsync()` | Promise-based nickname change |
-| `MessageQueue` | Rate-limited message queue |
+| الميزة | الوصف |
+|--------|-------|
+| 🍪 Cookie Parser | يدعم 5 صيغ: JSON Array, c3c, Netscape, Header String, Object |
+| ✅ Session Validator | فحص الكوكيز مباشرة عبر mbasic.facebook.com |
+| 🤖 Human Behavior | تأخير typing بشري، تدوير User-Agent |
+| 📦 Thread Cache | تخزين مؤقت لمعلومات المجموعات |
+| 📸 Media Helpers | إرسال صور/فيديوهات/صوت من URL مباشرة |
+| 🌐 Cobalt Download | تنزيل من TikTok/Instagram/YouTube/Twitter بـ API مجاني |
 
 ---
 
-## Usage
+## الاستخدام — Media Helpers
 
 ```js
-const fca = require("./Djamel-fca");
+const { sendPhoto, sendVideo, sendAudio, sendFromSocial, cobaltDownload } = require("./Djamel-fca/lib/media");
 
-// Send with human typing simulation
-await fca.humanSend(api, "Hello!", threadID);
+// ── إرسال صورة من رابط ──
+await sendPhoto(api, "https://example.com/image.jpg", "وصف الصورة", event.threadID);
 
-// Check if appState is valid
-const valid = fca.isValidAppState(appState);
+// ── إرسال فيديو من رابط ──
+await sendVideo(api, "https://example.com/video.mp4", "عنوان الفيديو", event.threadID);
 
-// Queue messages with rate limiting
-const queue = new fca.MessageQueue(500, 2000);
-await queue.enqueue(() => api.sendMessage("msg 1", tid));
-await queue.enqueue(() => api.sendMessage("msg 2", tid));
+// ── إرسال صوت/موسيقى ──
+await sendAudio(api, "https://example.com/song.mp3", "اسم الأغنية", event.threadID);
+
+// ── إرسال عدة صور دفعة واحدة (max 6) ──
+const { sendMultiPhoto } = require("./Djamel-fca/lib/media");
+await sendMultiPhoto(api, [url1, url2, url3], "صور متعددة", event.threadID);
+
+// ── تنزيل من TikTok/Instagram/YouTube وإرساله مباشرة ──
+await sendFromSocial(api, "https://www.tiktok.com/@user/video/xxx", "عنوان الفيديو", event.threadID);
+
+// ── فقط الصوت (MP3) من يوتيوب ──
+await sendFromSocial(api, "https://youtu.be/xxx", "اسم الأغنية", event.threadID, { audioOnly: true });
+
+// ── الحصول على رابط مباشر فقط ──
+const directUrl = await cobaltDownload("https://www.instagram.com/reel/xxx");
+```
+
+أو عبر `api.david` مباشرة في الأوامر:
+
+```js
+// متوفر تلقائياً بعد تسجيل الدخول عبر Djamel-fca
+await api.david.sendPhoto(url, caption, event.threadID);
+await api.david.sendVideo(url, caption, event.threadID);
+await api.david.sendAudio(url, caption, event.threadID);
+await api.david.sendFromSocial(url, caption, event.threadID);
+await api.david.sendMultiPhoto([url1, url2], caption, event.threadID);
+await api.david.cobaltDownload(url); // يرجع رابط مباشر
 ```
 
 ---
 
-## About
+## باقي الـ API (login, cookies, session)
 
-This library is part of the **DAVID V1** bot project by **DJAMEL**.
+```js
+const djamelFca = require("./Djamel-fca");
 
-- Author: **DJAMEL**
-- Version: 1.0.0
-- Engine: White Bot Engine
-- Platform: Facebook Messenger
+djamelFca(appState, opts, (err, api, info) => {
+  if (err) throw err;
+  // api جاهز للاستخدام مع كل ميزات @dongdev/fca-unofficial
+  // + api.david للميزات المضافة
+});
+```
+
+---
+
+## الإصدارات
+
+| الإصدار | الجديد |
+|---------|--------|
+| v4.0 | إضافة Media Helpers: sendPhoto, sendVideo, sendAudio, sendMultiPhoto, cobaltDownload, sendFromSocial |
+| v3.0 | النسخة الأصلية: login, cookies, session, typing |
