@@ -840,6 +840,12 @@ textarea.code{min-height:320px;font-family:'SF Mono','Fira Code',Consolas,monosp
 /* ════ TOGGLE ════ */
 .toggle-row{display:flex;align-items:center;justify-content:space-between;padding:13px 0;border-bottom:1px solid rgba(255,255,255,.07);}
 .toggle-row:last-child{border-bottom:none;}
+/* ── AddLock toggle ── */
+.toggle-wrap{cursor:pointer;user-select:none;}
+.toggle-track{width:44px;height:26px;border-radius:13px;background:rgba(255,255,255,.12);border:1px solid rgba(255,255,255,.15);position:relative;transition:background .25s,border-color .25s;}
+.toggle-track.on{background:var(--blue);border-color:var(--blue);}
+.toggle-thumb{width:20px;height:20px;border-radius:50%;background:#fff;position:absolute;top:2px;left:2px;transition:transform .25s var(--spring);box-shadow:0 1px 4px rgba(0,0,0,.35);}
+.toggle-track.on .toggle-thumb{transform:translateX(18px);}
 .t-label{font-size:14px;font-weight:600;}
 .t-desc{font-size:12px;color:var(--t2);margin-top:2px;}
 .switch{position:relative;display:inline-block;width:50px;height:29px;flex-shrink:0;}
@@ -1226,6 +1232,10 @@ input:checked+.slider::before{transform:translateX(21px);}
     <div class="bn-indicator"></div>
     <span class="bn-ic">🚀</span>Railway
   </button>
+  <button class="bn" data-tab="addlock">
+    <div class="bn-indicator"></div>
+    <span class="bn-ic">🔒</span>AddLock
+  </button>
 </nav>
 
 <!-- ═══ MAIN ══════════════════════════════════════════════════════════════ -->
@@ -1272,6 +1282,7 @@ input:checked+.slider::before{transform:translateX(21px);}
     <button class="tab" data-tab="ai">🤖 ذكاء AI</button>
     <button class="tab" data-tab="files">📁 الملفات</button>
     <button class="tab" data-tab="railway">🚀 Railway</button>
+    <button class="tab" data-tab="addlock">🔒 AddLock</button>
   </div>
 
   <div class="page-wrap">
@@ -1965,6 +1976,45 @@ input:checked+.slider::before{transform:translateX(21px);}
     </div>
 
   </div><!-- /tab-railway -->
+
+  <!-- ─── ADDLOCK ─────────────────────────────────── -->
+  <div class="tab-pane" id="tab-addlock">
+
+    <!-- Header -->
+    <div class="card section" style="background:linear-gradient(135deg,rgba(10,132,255,.15),rgba(191,90,242,.12));border:1px solid rgba(10,132,255,.25);">
+      <div style="display:flex;align-items:center;gap:14px;">
+        <div style="width:48px;height:48px;border-radius:16px;background:linear-gradient(135deg,#0A84FF,#BF5AF2);display:flex;align-items:center;justify-content:center;font-size:22px;flex-shrink:0;">🔒</div>
+        <div>
+          <div style="font-size:16px;font-weight:700;margin-bottom:3px;">AddLock — قفل عدد الأعضاء</div>
+          <div style="font-size:12px;color:var(--t2);">عند مغادرة أي عضو، يُضاف أحد حساباتك تلقائياً للحفاظ على العدد</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Search / Refresh -->
+    <div class="section" style="display:flex;gap:10px;align-items:center;">
+      <input class="form-input" id="addlockSearch" placeholder="🔍 بحث عن مجموعة…" oninput="filterAddlockGroups()" style="flex:1;margin:0;">
+      <button class="btn btn-blue" onclick="loadAddlockPage()" style="flex-shrink:0;padding:10px 18px;">🔄 تحديث</button>
+    </div>
+
+    <!-- Groups list -->
+    <div id="addlockGroupsList" class="section">
+      <div style="text-align:center;padding:40px;color:var(--t3);">⏳ جاري التحميل…</div>
+    </div>
+
+    <!-- Help card -->
+    <div class="card section" style="background:rgba(255,214,10,.06);border:1px solid rgba(255,214,10,.18);">
+      <div style="font-size:12px;font-weight:700;color:var(--yellow);margin-bottom:8px;">💡 أوامر AddLock</div>
+      <div style="font-size:11px;color:var(--t2);line-height:1.9;">
+        <code style="color:var(--cyan)">/addlock [id] [رابط1] [رابط2]</code> — ضبط حسابات لمجموعة<br>
+        <code style="color:var(--cyan)">/addlock on</code> — تفعيل للمجموعة الحالية<br>
+        <code style="color:var(--cyan)">/addlock off</code> — إيقاف للمجموعة الحالية<br>
+        <code style="color:var(--cyan)">/addlock status</code> — عرض الحالة<br>
+        <code style="color:var(--cyan)">/addlock list</code> — كل المجموعات المضبوطة
+      </div>
+    </div>
+
+  </div><!-- /tab-addlock -->
 
   </div><!-- /page-wrap -->
 </div><!-- /main -->
@@ -3649,6 +3699,10 @@ function switchTabHook(tab) {
     _tabInitDone.add("railway");
     initRailwayTab();
   }
+  if (tab === "addlock" && !_tabInitDone.has("addlock")) {
+    _tabInitDone.add("addlock");
+    loadAddlockPage();
+  }
   if (tab === "ai" && !_tabInitDone.has("ai")) {
     _tabInitDone.add("ai");
     aiLoadProvider();
@@ -3823,6 +3877,165 @@ async function rlwTriggerDeploy() {
   const r = await apiFetch("/api/railway/deploy", { method:"POST", body:JSON.stringify({ token, projectId }) });
   if (r.ok) { toast("🚀 تم تشغيل الـ Deploy!","success"); setTimeout(rlwCheckStatus, 3000); }
   else toast("❌ " + (r.error||"فشل"), "error");
+}
+
+/* ════ ADDLOCK PAGE ════════════════════════════════════════════════ */
+let _addlockGroups  = [];
+let _addlockConfig  = {};
+
+async function loadAddlockPage() {
+  const list = document.getElementById("addlockGroupsList");
+  if (!list) return;
+  list.innerHTML = '<div style="text-align:center;padding:40px;color:var(--t3);">⏳ جاري التحميل…</div>';
+
+  const [tRes, cRes] = await Promise.all([
+    apiFetch("/api/addlock/threads"),
+    apiFetch("/api/addlock"),
+  ]);
+
+  _addlockConfig = cRes.ok ? (cRes.config || {}) : {};
+  _addlockGroups = tRes.ok ? (tRes.threads || []) : [];
+
+  // أضف المجموعات الموجودة في الكونفيج لكنها غير موجودة في allThreadData
+  for (const [tid, data] of Object.entries(_addlockConfig)) {
+    if (!_addlockGroups.find(g => g.tid === tid)) {
+      _addlockGroups.push({ tid, name: `غروب ${tid}`, memberCount: 0, imageSrc: null });
+    }
+  }
+
+  renderAddlockGroups();
+}
+
+function filterAddlockGroups() {
+  renderAddlockGroups();
+}
+
+function renderAddlockGroups() {
+  const list   = document.getElementById("addlockGroupsList");
+  if (!list) return;
+  const q      = (document.getElementById("addlockSearch")?.value || "").toLowerCase();
+  const groups = _addlockGroups.filter(g =>
+    !q || g.name.toLowerCase().includes(q) || g.tid.includes(q)
+  );
+
+  if (!groups.length) {
+    list.innerHTML = '<div style="text-align:center;padding:32px;color:var(--t3);">لا توجد مجموعات — تأكد أن البوت مشغّل وفي مجموعات</div>';
+    return;
+  }
+
+  list.innerHTML = groups.map(g => {
+    const cfg     = _addlockConfig[g.tid] || {};
+    const enabled = !!cfg.enabled;
+    const links   = cfg.links || [];
+    const initials = (g.name || "G").charAt(0).toUpperCase();
+    const imgHtml = g.imageSrc
+      ? `<img src="${g.imageSrc}" style="width:100%;height:100%;object-fit:cover;border-radius:inherit;" onerror="this.parentElement.innerHTML='<span style=font-size:18px;font-weight:900>${initials}</span>'">`
+      : `<span style="font-size:18px;font-weight:900">${initials}</span>`;
+
+    return `
+<div class="card section" style="padding:0;overflow:hidden;" id="alcard-${g.tid}">
+  <!-- Group Header -->
+  <div style="display:flex;align-items:center;gap:12px;padding:16px 16px 12px;border-bottom:1px solid rgba(255,255,255,.06);">
+    <div style="width:46px;height:46px;border-radius:14px;background:linear-gradient(135deg,#0A84FF44,#BF5AF244);display:flex;align-items:center;justify-content:center;flex-shrink:0;overflow:hidden;border:1.5px solid rgba(255,255,255,.12);">
+      ${imgHtml}
+    </div>
+    <div style="flex:1;min-width:0;">
+      <div style="font-size:14px;font-weight:700;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${g.name}</div>
+      <div style="font-size:11px;color:var(--t3);margin-top:2px;">${g.tid} · ${g.memberCount} عضو</div>
+    </div>
+    <!-- Toggle -->
+    <label class="toggle-wrap" style="flex-shrink:0;" onclick="toggleAddlock('${g.tid}', this)">
+      <input type="checkbox" ${enabled ? "checked" : ""} style="display:none;">
+      <div class="toggle-track ${enabled ? "on" : ""}">
+        <div class="toggle-thumb"></div>
+      </div>
+    </label>
+  </div>
+
+  <!-- Links Section -->
+  <div style="padding:12px 16px;">
+    <div style="font-size:11px;font-weight:700;color:var(--t2);text-transform:uppercase;letter-spacing:.5px;margin-bottom:10px;">
+      🔗 حسابات الاستبدال (${links.length})
+    </div>
+    <div id="al-links-${g.tid}" style="display:flex;flex-direction:column;gap:7px;">
+      ${links.map((l, i) => `
+        <div style="display:flex;align-items:center;gap:8px;background:rgba(255,255,255,.06);border-radius:10px;padding:8px 12px;">
+          <span style="width:20px;height:20px;border-radius:6px;background:rgba(10,132,255,.25);display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:700;flex-shrink:0;">${i+1}</span>
+          <span style="flex:1;font-size:12px;font-family:monospace;color:var(--cyan);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${l}">${l}</span>
+          <button onclick="removeAddlockLink('${g.tid}',${i})" style="background:rgba(255,69,58,.15);border:none;color:var(--red);border-radius:6px;width:24px;height:24px;cursor:pointer;font-size:14px;display:flex;align-items:center;justify-content:center;">✕</button>
+        </div>
+      `).join("")}
+    </div>
+    <!-- Add link input -->
+    <div style="display:flex;gap:8px;margin-top:10px;">
+      <input class="form-input" id="al-input-${g.tid}" placeholder="أدخل UID أو رابط فيسبوك…" style="flex:1;margin:0;font-size:12px;padding:9px 12px;" onkeydown="if(event.key==='Enter')addAddlockLink('${g.tid}')">
+      <button class="btn btn-blue" onclick="addAddlockLink('${g.tid}')" style="padding:9px 14px;font-size:12px;">＋ إضافة</button>
+    </div>
+  </div>
+</div>`;
+  }).join("");
+}
+
+async function toggleAddlock(tid, labelEl) {
+  const cb  = labelEl.querySelector("input");
+  const tr  = labelEl.querySelector(".toggle-track");
+  const cfg = _addlockConfig[tid] || {};
+  const newVal = !cfg.enabled;
+
+  const r = await apiFetch("/api/addlock", {
+    method: "POST",
+    body: JSON.stringify({ tid, enabled: newVal }),
+  });
+  if (r.ok) {
+    if (!_addlockConfig[tid]) _addlockConfig[tid] = { enabled: false, links: [] };
+    _addlockConfig[tid].enabled = newVal;
+    if (cb) cb.checked = newVal;
+    tr.className = "toggle-track" + (newVal ? " on" : "");
+    toast(newVal ? "✅ تم تفعيل AddLock" : "⏹ تم إيقاف AddLock", newVal ? "success" : "info", 1800);
+  } else {
+    toast("❌ " + (r.error || "فشل"), "error");
+    if (cb) cb.checked = !newVal; // تراجع
+  }
+}
+
+async function addAddlockLink(tid) {
+  const inp = document.getElementById("al-input-" + tid);
+  const val = (inp?.value || "").trim();
+  if (!val) return;
+
+  const cfg   = _addlockConfig[tid] || { enabled: false, links: [], index: 0 };
+  const links = [...(cfg.links || []), val];
+
+  const r = await apiFetch("/api/addlock", {
+    method: "POST",
+    body: JSON.stringify({ tid, links }),
+  });
+  if (r.ok) {
+    if (!_addlockConfig[tid]) _addlockConfig[tid] = { enabled: false, links: [], index: 0 };
+    _addlockConfig[tid].links = links;
+    if (inp) inp.value = "";
+    renderAddlockGroups();
+    toast("✅ تمت إضافة الرابط", "success", 1500);
+  } else {
+    toast("❌ " + (r.error || "فشل"), "error");
+  }
+}
+
+async function removeAddlockLink(tid, index) {
+  const cfg   = _addlockConfig[tid] || {};
+  const links = (cfg.links || []).filter((_, i) => i !== index);
+
+  const r = await apiFetch("/api/addlock", {
+    method: "POST",
+    body: JSON.stringify({ tid, links }),
+  });
+  if (r.ok) {
+    _addlockConfig[tid].links = links;
+    renderAddlockGroups();
+    toast("🗑 تم حذف الرابط", "info", 1500);
+  } else {
+    toast("❌ " + (r.error || "فشل"), "error");
+  }
 }
 
 /* ─── Service Worker ─── */

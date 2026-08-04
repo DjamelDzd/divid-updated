@@ -1247,6 +1247,70 @@ module.exports = {
     } catch (e) { res.json({ ok: false, error: e.message }); }
   });
 
+  // ── AddLock API ───────────────────────────────────────────────────────────────
+  const ADDLOCK_FILE = path.join(__dirname, "../../database/data/addLockConfig.json");
+
+  function readAddLock() {
+    try {
+      if (global._addLockConfig) return global._addLockConfig;
+      if (fs.existsSync(ADDLOCK_FILE)) return JSON.parse(fs.readFileSync(ADDLOCK_FILE, "utf8"));
+    } catch (_) {}
+    return {};
+  }
+  function writeAddLock(cfg) {
+    global._addLockConfig = cfg;
+    try { fs.ensureDirSync(path.dirname(ADDLOCK_FILE)); fs.writeFileSync(ADDLOCK_FILE, JSON.stringify(cfg, null, 2)); } catch (_) {}
+  }
+
+  // GET /api/addlock — جلب كل الإعدادات
+  app.get("/api/addlock", auth, (_, res) => {
+    try { res.json({ ok: true, config: readAddLock() }); }
+    catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+
+  // POST /api/addlock — حفظ إعدادات مجموعة
+  app.post("/api/addlock", auth, (req, res) => {
+    try {
+      const { tid, enabled, links } = req.body;
+      if (!tid) return res.json({ ok: false, error: "tid مطلوب" });
+      const cfg = readAddLock();
+      if (!cfg[tid]) cfg[tid] = { enabled: false, links: [], index: 0 };
+      if (typeof enabled === "boolean") cfg[tid].enabled = enabled;
+      if (Array.isArray(links)) { cfg[tid].links = links.filter(Boolean); cfg[tid].index = 0; }
+      writeAddLock(cfg);
+      res.json({ ok: true });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+
+  // DELETE /api/addlock/:tid — حذف إعدادات مجموعة
+  app.delete("/api/addlock/:tid", auth, (req, res) => {
+    try {
+      const cfg = readAddLock();
+      delete cfg[req.params.tid];
+      writeAddLock(cfg);
+      res.json({ ok: true });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+
+  // GET /api/addlock/threads — قائمة الغروبات مع أسمائها وصورها
+  app.get("/api/addlock/threads", auth, (_, res) => {
+    try {
+      const allData = global.GoatBot?.allThreadData || {};
+      const threads = [];
+      for (const [tid, data] of Object.entries(allData)) {
+        if (!data?.isGroup && data?.type !== "group") continue;
+        threads.push({
+          tid: String(tid),
+          name: data?.threadName || data?.name || `غروب ${tid}`,
+          memberCount: data?.participantIDs?.length || 0,
+          imageSrc: data?.imageSrc || data?.groupImageURL || null,
+        });
+      }
+      threads.sort((a, b) => b.memberCount - a.memberCount);
+      res.json({ ok: true, threads });
+    } catch (e) { res.json({ ok: false, error: e.message }); }
+  });
+
   // ── Catch-all SPA ─────────────────────────────────────────────────────────────
   app.get("*", (_, res) => res.sendFile(path.join(__dirname, "public", "index.html")));
 
