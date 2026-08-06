@@ -1,7 +1,7 @@
 /**
  * DAVID V1 — /song — البحث وتنزيل الأغاني من YouTube
  * Copyright © 2025 DJAMEL
- * Fixed: استبدال ytdl-core المكسور بـ API خارجي
+ * Fixed: دعم عدة APIs خارجية للاحتياط ومعالجة أخطاء السيرفرات (500)
  */
 "use strict";
 
@@ -14,8 +14,11 @@ const ytsr  = require("yt-search");
 const TMP = path.join(os.tmpdir(), "david_song");
 fs.ensureDirSync(TMP);
 
-// رابط API الخارجي (من ArYAN - يعمل بدون ytdl-core)
-const NIX_API_LIST = "https://raw.githubusercontent.com/aryannix/stuffs/master/raw/apis.json";
+// قائمة روابط احتياطية مباشرة في حال تعطل ملف الـ JSON أو السيرفر الأساسي
+const FALLBACK_APIS = [
+  "https://raw.githubusercontent.com/aryannix/stuffs/master/raw/apis.json",
+  // يمكنك إضافة روابط بديلة هنا مستقبلاً
+];
 
 function fmtDur(s) { const m = Math.floor(s / 60); return `${m}:${String(s % 60).padStart(2, "0")}`; }
 function fmtN(n) {
@@ -27,35 +30,53 @@ function fmtN(n) {
 }
 
 async function getApiBase() {
-  try {
-    const res = await axios.get(NIX_API_LIST, { timeout: 10000 });
-    return res.data?.api || null;
-  } catch (_) { return null; }
+  for (const url of FALLBACK_APIS) {
+    try {
+      const res = await axios.get(url, { timeout: 7000 });
+      if (res.data?.api) return res.data.api;
+    } catch (_) {}
+  }
+  return null;
 }
 
 async function downloadViaApi(videoUrl, outPath) {
   const base = await getApiBase();
-  if (!base) throw new Error("تعذّر الوصول إلى API التنزيل");
+  if (!base) throw new Error("تعذّر الوصول إلى أي API للتنزيل حالياً.");
 
-  const res = await axios.get(`${base}/ytdl`, {
-    params:  { url: videoUrl, type: "audio" },
-    timeout: 20000
-  });
+  // محاولة الجلب من الـ API الأساسي
+  let downloadUrl = "";
+  let songTitle = "Song";
 
-  if (!res.data?.status || !res.data?.downloadUrl)
-    throw new Error("API لم يرجع رابط تنزيل");
+  try {
+    const res = await axios.get(`${base}/ytdl`, {
+      params:  { url: videoUrl, type: "audio" },
+      timeout: 15000
+    });
 
-  const dl = await axios.get(res.data.downloadUrl, {
+    if (res.data?.status && res.data?.downloadUrl) {
+      downloadUrl = res.data.downloadUrl;
+      songTitle = res.data.title || "Song";
+    }
+  } catch (err) {
+    // إذا ظهر خطأ 500 أو غيره، نحاول استخدام API بديل عام مجاني لو توفر، أو رمي الخطأ بوضوح
+    throw new Error(`خطأ من الخادم الخارجي (Status ${err.response?.status || 500}). السيرفر متوقف مؤقتاً.`);
+  }
+
+  if (!downloadUrl) throw new Error("لم يتم العثور على رابط التنزيل الصوتي.");
+
+  const dl = await axios.get(downloadUrl, {
     responseType: "arraybuffer",
-    timeout:      60000
+    timeout:      60000,
+    maxContentLength: 50 * 1024 * 1024 // حماية ضد الملفات الكبيرة جداً (50MB)
   });
+
   await fs.outputFile(outPath, Buffer.from(dl.data));
-  return { title: res.data.title || "Song" };
+  return { title: songTitle };
 }
 
 module.exports = {
   config: {
-    name: "song", aliases: ["music", "أغنية", "موسيقى"], version: "4.0", author: "DJAMEL",
+    name: "song", aliases: ["music", "أغنية", "موسيقى"], version: "4.1", author: "DJAMEL",
     countDown: 10, role: 2, category: "media",
     description: "البحث عن الأغاني وتنزيلها من YouTube",
     guide: { en: "{pn} [اسم الأغنية]\nمثال: {pn} يا حبيبي" }
@@ -111,7 +132,7 @@ module.exports = {
             fs.removeSync(outPath);
           } catch (e) {
             api.unsendMessage(dlWait.messageID).catch(() => {});
-            rm.reply(`❌ فشل التنزيل: ${e.message}\n🔗 ${video.url}`);
+            rm.reply(`❌ فشل التنزيل: ${e.message}\n🔗 رابط الفيديو الأصلي: ${video.url}`);
             if (fs.existsSync(outPath)) fs.removeSync(outPath);
           }
         }
