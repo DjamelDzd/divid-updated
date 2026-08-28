@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.104.1",
-    "@dongdev/fca-unofficial": "*",
+    "@dongdev/fca-unofficial": "^4.0.3",
     "axios": "^1.16.1",
     "body-parser": "^1.20.5",
     "chalk": "^4.1.2",
@@ -23,6 +23,9 @@
     "moment-timezone": "^0.5.48",
     "socket.io": "^4.8.3",
     "yt-search": "^2.13.1"
+  },
+  "overrides": {
+    "tar": "7.5.22"
   },
   "author": "DJAMEL",
   "license": "UNLICENSED",

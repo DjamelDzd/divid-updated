@@ -1,1 +1,2 @@
 - [DAVID V1 Architecture](david-v1-arch.md) — Node/Express bot engine on port 5000, single-file SPA dashboard (index.html), WebView Android app; password: david2025
+- [Replit Node install quirks](replit-node-install-quirks.md) — managed installs may skip postinstall compatibility patches
