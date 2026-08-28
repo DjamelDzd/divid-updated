@@ -19,6 +19,8 @@ const path = require("path");
 const axios = require("axios");
 
 const DATA_FILE = path.join(process.cwd(), "database", "data", "addLockConfig.json");
+const MAX_GROUP_MEMBERS = 250;
+const reconcileLocks = new Map();
 fs.ensureDirSync(path.dirname(DATA_FILE));
 
 // ── استخدم global لمنع فقدان الحالة عند hot-reload ─────────────────────────
@@ -34,6 +36,15 @@ function loadConfig() { return global._addLockConfig; }
 function saveConfig(cfg) {
   global._addLockConfig = cfg;
   try { fs.writeFileSync(DATA_FILE, JSON.stringify(cfg, null, 2)); } catch (_) {}
+}
+
+function uniqueIDs(values) {
+  return [...new Set((Array.isArray(values) ? values : []).map(value => {
+    if (value && typeof value === "object") {
+      return value.id || value.userID || value.fbId || value.uid || "";
+    }
+    return value;
+  }).map(value => String(value || "").trim()).filter(Boolean))];
 }
 
 // ── صلاحيات ──────────────────────────────────────────────────────────────────
@@ -88,6 +99,106 @@ async function addUserToGroup(api, uid, tid) {
   });
 }
 
+function getParticipantIDs(info) {
+  const values = info?.participantIDs || info?.participants;
+  if (!Array.isArray(values)) {
+    throw new Error("لم تُرجع واجهة Messenger قائمة أعضاء صالحة");
+  }
+  return uniqueIDs(values);
+}
+
+function getThreadInfo(api, tid) {
+  return new Promise((resolve, reject) => {
+    if (typeof api?.getThreadInfo !== "function") {
+      return reject(new Error("getThreadInfo غير مدعوم"));
+    }
+    api.getThreadInfo(String(tid), (err, info) => {
+      if (err) reject(err);
+      else resolve(info || {});
+    });
+  });
+}
+
+function isAlreadyInGroupError(error) {
+  return /already|already\s+(in|a)\s+group|exists|موجود|مضاف|عضو\s+موجود/i.test(
+    String(error?.message || error || "")
+  );
+}
+
+function removeWaitingAccounts(cfg, tid, memberIDs) {
+  const data = cfg[tid];
+  if (!data?.links?.length || !memberIDs?.size) return false;
+  const before = data.links.length;
+  data.links = uniqueIDs(data.links).filter(uid => !memberIDs.has(String(uid)));
+  return data.links.length !== before;
+}
+
+async function reconcileAddLock(api, tid) {
+  const key = String(tid);
+  if (reconcileLocks.has(key)) return reconcileLocks.get(key);
+
+  const job = (async () => {
+    const cfg = loadConfig();
+    const data = cfg[key];
+    if (!data?.enabled || !data?.links?.length) return;
+
+    let members;
+    try {
+      members = new Set(getParticipantIDs(await getThreadInfo(api, key)));
+    } catch (error) {
+      global.log?.warn?.("ADDLOCK", `تعذر قراءة أعضاء المجموعة ${key}: ${error.message}`);
+      return;
+    }
+
+    let changed = removeWaitingAccounts(cfg, key, members);
+    if (changed) saveConfig(cfg);
+
+    while (members.size < MAX_GROUP_MEMBERS) {
+      const currentData = loadConfig()[key];
+      if (!currentData?.enabled || !currentData.links?.length) break;
+
+      const candidate = String(currentData.links[0] || "").trim();
+      if (!candidate) {
+        currentData.links.shift();
+        saveConfig(loadConfig());
+        continue;
+      }
+
+      try {
+        await addUserToGroup(api, candidate, key);
+        const current = loadConfig();
+        if (current[key]) {
+          current[key].links = uniqueIDs(current[key].links)
+            .filter(uid => String(uid) !== candidate);
+          saveConfig(current);
+        }
+        members.add(candidate);
+        global.log?.info?.("ADDLOCK", `✅ أُضيف UID ${candidate} إلى المجموعة ${key}`);
+      } catch (error) {
+        if (isAlreadyInGroupError(error)) {
+          const current = loadConfig();
+          if (current[key]) {
+            current[key].links = uniqueIDs(current[key].links)
+              .filter(uid => String(uid) !== candidate);
+            saveConfig(current);
+          }
+          members.add(candidate);
+          continue;
+        }
+        global.log?.warn?.("ADDLOCK", `فشل إضافة UID ${candidate}: ${error.message}`);
+        break;
+      }
+    }
+
+    if (members.size >= MAX_GROUP_MEMBERS) {
+      global.log?.info?.("ADDLOCK", `المجموعة ${key} ممتلئة (${members.size}/${MAX_GROUP_MEMBERS})`);
+    }
+  })().finally(() => reconcileLocks.delete(key));
+
+  reconcileLocks.set(key, job);
+  return job;
+}
+
 // ── معالج حدث مغادرة الغروب ─────────────────────────────────────────────────
 function isLeaveEvent(event) {
   const t = event.logMessageType || event.type || "";
@@ -101,15 +212,34 @@ function isLeaveEvent(event) {
   );
 }
 
+function isJoinEvent(event) {
+  const t = event.logMessageType || event.type || "";
+  return t === "log:subscribe" ||
+    (t === "event" && event.logMessageType === "log:subscribe");
+}
+
+function getAddedUIDs(event) {
+  const data = event.logMessageData || event.eventData || {};
+  return new Set(uniqueIDs(
+    data.addedParticipants ||
+    data.added_participants ||
+    data.participantsAdded ||
+    data.participants_added ||
+    data.participants
+  ));
+}
+
 function getLeftUID(event) {
   const d = event.logMessageData || {};
-  return String(
+  const value =
     d.leftParticipantFbId ||
     d.removedParticipantFbId ||
     (Array.isArray(d.removed_participants) ? d.removed_participants[0] : null) ||
-    (Array.isArray(d.participants)         ? d.participants[0]         : null) ||
-    ""
-  ).trim();
+    (Array.isArray(d.participants) ? d.participants[0] : null) ||
+    "";
+  return value && typeof value === "object"
+    ? String(value.id || value.userID || value.fbId || value.uid || "").trim()
+    : String(value).trim();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -152,13 +282,17 @@ module.exports = {
         );
       cfg[tid].enabled = true;
       saveConfig(cfg);
+      // ابدأ فوراً بملء أي أماكن شاغرة قبل انتظار حدث مغادرة.
+      reconcileAddLock(api, tid).catch(error => {
+        global.log?.warn?.("ADDLOCK", `فشل الفحص الأولي للمجموعة ${tid}: ${error.message}`);
+      });
       return message.reply(
         "╔══════════════════════════════╗\n" +
         "║  ✅ تم تفعيل AddLock         ║\n" +
         "╠══════════════════════════════╣\n" +
         `║  الروابط: ${cfg[tid].links.length} حساب              ║\n` +
-        "║  عند مغادرة أي عضو سيُضاف  ║\n" +
-        "║  أحد حساباتك تلقائياً      ║\n" +
+        "║  ستُملأ الأماكن الشاغرة فوراً ║\n" +
+        "║  ويراقب المغادرات باستمرار   ║\n" +
         "╚══════════════════════════════╝"
       );
     }
@@ -292,36 +426,28 @@ module.exports = {
     return message.reply(lines.join("\n"));
   },
 
-  // ── كشف مغادرة الأعضاء وإضافة حساب بديل ────────────────────────────────────
+  // ── مراقبة الدخول/الخروج وإضافة حساب بديل فور توفر مكان ───────────────────
   onEvent: async function ({ api, event }) {
-    if (!isLeaveEvent(event)) return;
+    const tid = String(event?.threadID || "");
+    if (!tid) return;
 
-    const tid    = String(event.threadID);
-    const cfg    = loadConfig();
-    const data   = cfg[tid];
+    const cfg = loadConfig();
+    const data = cfg[tid];
     if (!data?.enabled || !data?.links?.length) return;
 
-    const leftUID = getLeftUID(event);
-    // لا نُضيف بديلاً إذا كان الذي غادر هو أدمن البوت
-    if (leftUID && isBotAdmin(leftUID)) return;
-
-    // اختر الحساب التالي بالدوران
-    const links = data.links;
-    const idx   = (data.index || 0) % links.length;
-    const uid   = links[idx];
-
-    // حدّث الفهرس للمرة القادمة
-    cfg[tid].index = (idx + 1) % links.length;
-    saveConfig(cfg);
-
-    // انتظر قليلاً ثم أضف
-    await new Promise(r => setTimeout(r, 3000 + Math.random() * 2000));
-
-    try {
-      await addUserToGroup(api, uid, tid);
-      if (global.log) global.log.info("ADDLOCK", `✅ أُضيف UID ${uid} إلى الغروب ${tid}`);
-    } catch (e) {
-      if (global.log) global.log.warn("ADDLOCK", `فشل إضافة UID ${uid}: ${e.message}`);
+    if (isJoinEvent(event)) {
+      const joined = getAddedUIDs(event);
+      if (joined.size && removeWaitingAccounts(cfg, tid, joined)) saveConfig(cfg);
+      return;
     }
+
+    if (!isLeaveEvent(event)) return;
+
+    const leftUID = getLeftUID(event);
+    if (leftUID) {
+      global.log?.info?.("ADDLOCK", `رصد خروج UID ${leftUID} من المجموعة ${tid}`);
+    }
+    // لا يوجد تأخير مقصود؛ القفل المشترك يمنع التكرار عند خروج عدة أعضاء معاً.
+    await reconcileAddLock(api, tid);
   },
 };
