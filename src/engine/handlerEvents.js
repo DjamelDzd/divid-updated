@@ -99,10 +99,12 @@ async function onEventCmds(api, event, commands) {
   global.lastMqttActivity = Date.now();
 
   const { type, senderID, threadID, body = "", messageID } = event;
-  if (!senderID || !threadID) return;
+  const isMessageEvent = type === "message" || type === "message_reply";
+  // أحداث المجموعة (دخول/خروج) قد لا تحتوي senderID؛ لا نمنع المراقبات الآلية بسبب ذلك.
+  if (!threadID || (isMessageEvent && !senderID)) return;
 
   // تجاهل رسائل البوت لنفسه
-  if (String(senderID) === String(global.GoatBot?.botID)) return;
+  if (senderID && String(senderID) === String(global.GoatBot?.botID)) return;
 
   // منع معالجة نفس الرسالة مرتين
   if (messageID && isDuplicate(messageID)) return;

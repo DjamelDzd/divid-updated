@@ -266,8 +266,9 @@ module.exports = {
   },
 
   onStart: async function ({ api, event, args, message }) {
+    // حماية ثانية صامتة إذا تم استدعاء الأمر خارج المعالج العام.
     if (!isBotAdmin(event.senderID))
-      return message.reply("⛔ هذا الأمر للمالك والأدمن فقط.");
+      return;
 
     const tid = String(event.threadID);
     const cfg = loadConfig();
@@ -355,8 +356,9 @@ module.exports = {
     let targetTid = tid;
     let linkArgs  = args.slice(1);
 
-    // إذا بدأ المعامل الأول برقم طويل فهو groupId
-    if (/^\d{10,20}$/.test(args[0] || "")) {
+    // الرقم الوحيد يمكن أن يكون UID لحساب في المجموعة الحالية.
+    // نعتبر الرقم Group ID فقط إذا تبعه رابط/UID آخر.
+    if (/^\d{10,20}$/.test(args[0] || "") && args.length >= 2) {
       targetTid = args[0];
       linkArgs  = args.slice(1);
     } else if (args[0]) {
