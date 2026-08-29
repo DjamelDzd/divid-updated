@@ -34,6 +34,11 @@ control, messenger, cookies, commands, activation, editor, protection, settings,
 ## Why fetch() in server.js
 Node 18 has native fetch — no node-fetch needed. All GitHub and Railway API calls use native fetch directly.
 
+## AddLock numeric argument rule
+- A single numeric `/addlock` argument is treated as an account UID for the current group; Facebook account and group IDs have the same numeric shape, so unqualified single-number input is inherently ambiguous.
+- **Why:** This keeps the common direct-UID workflow functional while retaining the existing multi-argument target-group form.
+- **How to apply:** Do not change this parsing rule without defining an explicit syntax for targeting another group with numeric-only account IDs.
+
 ## Swipe Fix
 Changed dt > 600 → dt > 900, dx < 55 → dx < 45, dy ratio 0.75 → 1.1 (more permissive)
 
